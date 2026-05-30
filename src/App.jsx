@@ -1,241 +1,240 @@
+// src/App.jsx
 import { useState, useEffect } from 'react';
 import { nodeService } from './services/api';
 
 function App() {
+  // Estados de control del árbol y navegación
   const [nodes, setNodes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  
-  // Historial de navegación para simular las carpetas/árbol
-  // Guardaremos objetos: { id: 1, title: 'one' }
   const [history, setHistory] = useState([]);
 
-  // Función reutilizable para cargar nodos según dónde estemos parados
- const loadNodes = async (parentId = null) => {
-  setLoading(true);
-  setError(null);
-  try {
-    let data;
-    if (parentId === null) {
-      data = await nodeService.getParentNodes();
-    } else {
-      data = await nodeService.getChildNodes(parentId);
-    }
-    setNodes(data);
-  } catch (err) {
-    // Si la API da 404 al recargar un nodo padre, significa que ese padre se quedó sin hijos
-    if (err.response && err.response.status === 404 && parentId !== null) {
-      setNodes([]); // Vaciamos la lista elegantemente sin romper la interfaz
-    } else {
-      // Cualquier otro error real (caída de servidor, internet, etc.) sí muestra el error
-      console.error("Error cargando nodos:", err);
-      setError("No se pudieron cargar los nodos.");
-    }
-  } finally {
-    setLoading(false);
-  }
-};
-
-  // Carga inicial (Raíz)
-  useEffect(() => {
-    loadNodes();
-  }, []);
-
-  // Acción al hacer click en un nodo (Entrar a sus hijos)
-  const handleNodeClick = async (clickedNode) => {
-  setLoading(true);
-  setError(null);
-  try {
-    const children = await nodeService.getChildNodes(clickedNode.id);
-    setNodes(children);
-    setHistory([...history, clickedNode]);
-  } catch (err) {
-    // Si la API responde con 404, significa que el nodo simplemente NO tiene hijos.
-    if (err.response && err.response.status === 404) {
-      setNodes([]); // Dejamos la lista vacía para que muestre "Este nodo no tiene hijos"
-      setHistory([...history, clickedNode]); // Igual permitimos entrar para ver las opciones
-    } else {
-      // Cualquier otro error (ej: 500, problemas de internet) sí es un fallo real.
-      console.error("Error al navegar al nodo hijo:", err);
-      setError("Error al abrir el nodo. Intenta de nuevo.");
-    }
-  } finally {
-    setLoading(false);
-  }
-};
-
-  // Acción para Volver Atrás
-  const handleBackClick = () => {
-    if (history.length === 0) return;
-
-    // 1. Clonamos el historial y removemos el último elemento (donde estamos parados)
-    const newHistory = [...history];
-    newHistory.pop(); 
-    
-    // 2. Actualizamos el estado del historial
-    setHistory(newHistory);
-
-    // 3. Si el nuevo historial queda vacío, volvemos a la raíz (null)
-    if (newHistory.length === 0) {
-      loadNodes(null);
-    } else {
-      // Si aún quedan elementos, cargamos los hijos del último nodo del historial
-      const previousNode = newHistory[newHistory.length - 1];
-      loadNodes(previousNode.id);
-    }
-  };
-
-  // Obtener el nodo actual donde estamos parados (si hay historial)
-  const currentNode = history.length > 0 ? history[history.length - 1] : null;
-
-  // Función para crear un nodo en la ubicación actual
-const handleCreateNode = async () => {
-  const title = prompt("Introduce el título para el nuevo nodo:");
-  if (!title || !title.trim()) return;
-
-  // Si history está vacío, el padre es null (Raíz). Si no, el padre es el ID del último nodo visitado.
-  const parentId = history.length > 0 ? history[history.length - 1].id : null;
-
-  setLoading(true);
-  try {
-    // El payload que descubrimos en el archivo Insomnia:
-    await nodeService.createNode({
-      parent: parentId,
-      title: title, // Mandamos el título ingresado
-      locales: ["es_ES"] // Configuración por defecto requerida por la API
-    });
-    
-    // Refrescamos la vista actual para ver el nodo creado
-    loadNodes(parentId);
-  } catch (err) {
-    console.error("Error al crear nodo:", err);
-    setError("No se pudo crear el nodo.");
-    setLoading(false);
-  }
-};
-
-// Función para eliminar el nodo actual
-// Función para eliminar el nodo actual de forma segura
-const handleDeleteNode = async () => {
-  if (history.length === 0) return;
-
-  const nodeToDelete = history[history.length - 1];
-
-  if (window.confirm(`¿Estás seguro de que deseas eliminar el nodo "${nodeToDelete.title}"?`)) {
+  /**
+   * Carga los nodos basándose en la posición actual del árbol.
+   */
+  const loadNodes = async (parentId = null) => {
     setLoading(true);
     setError(null);
     try {
-      // 1. Borramos en la API
-      await nodeService.deleteNode(nodeToDelete.id);
-      
-      // 2. Seteamos el nuevo historial PRIMERO para actualizar la ruta visual
-      const newHistory = [...history];
-      newHistory.pop(); 
-      setHistory(newHistory);
-
-      // 3. Mandamos a cargar al nuevo contenedor
-      if (newHistory.length === 0) {
-        await loadNodes(null);
+      let data;
+      if (parentId === null) {
+        data = await nodeService.getParentNodes();
       } else {
-        const parentNode = newHistory[newHistory.length - 1];
-        await loadNodes(parentNode.id);
+        data = await nodeService.getChildNodes(parentId);
       }
+      setNodes(data);
     } catch (err) {
-      console.error("Error al eliminar el nodo:", err);
-      setError("No se pudo eliminar el nodo.");
+      // Manejo del 404: si un nodo no tiene hijos, limpiamos la lista de forma segura
+      if (err.response && err.response.status === 404 && parentId !== null) {
+        setNodes([]);
+      } else {
+        console.error("Error al cargar los nodos:", err);
+        setError("Error de comunicación con el servidor. Intente nuevamente.");
+      }
+    } finally {
       setLoading(false);
     }
-  }
-};
- return (
-  <div style={{ padding: '20px', fontFamily: 'sans-serif', maxWidth: '600px', margin: '0 auto' }}>
-    <h1>Explorador de Nodos</h1>
+  };
 
-    {/* Barra de Navegación / Breadcrumbs */}
-    <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        {history.length > 0 && (
-          <button 
-            onClick={handleBackClick}
-            style={{ padding: '6px 12px', cursor: 'pointer', backgroundColor: '#e0e0e0', border: 'none', borderRadius: '4px', color: '#000' }}
-          >
-            ← Volver
-          </button>
-        )}
-        <span style={{ fontWeight: 'bold' }}>
-          Ruta actual: Raíz {history.map(n => ` > ${n.title}`)}
-        </span>
+  // Carga inicial al montar la aplicación
+  useEffect(() => {
+    loadNodes(null);
+  }, []);
+
+  /**
+   * Navegación hacia un nodo hijo (Hacer clic en una carpeta)
+   */
+  const handleNodeClick = async (clickedNode) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const children = await nodeService.getChildNodes(clickedNode.id);
+      setNodes(children);
+      setHistory((prevHistory) => [...prevHistory, clickedNode]);
+    } catch (err) {
+      // Si el hijo es un nodo hoja (da 404), entramos igual pero mostrando lista vacía
+      if (err.response && err.response.status === 404) {
+        setNodes([]); 
+        setHistory((prevHistory) => [...prevHistory, clickedNode]); 
+      } else {
+        console.error("Error al navegar:", err);
+        setError("No se pudo abrir el elemento seleccionado.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Retroceder un nivel en la navegación (Breadcrumbs)
+   */
+  const handleBackClick = async () => {
+    if (history.length === 0) return;
+
+    const newHistory = [...history];
+    newHistory.pop(); 
+    setHistory(newHistory);
+
+    const targetParentId = newHistory.length > 0 ? newHistory[newHistory.length - 1].id : null;
+    await loadNodes(targetParentId);
+  };
+
+  /**
+   * Operación de Creación de Nodos
+   */
+  const handleCreateNode = async () => {
+    const title = prompt("Introduce el título para el nuevo nodo:");
+    if (!title || !title.trim()) return;
+
+    const activeParentId = history.length > 0 ? history[history.length - 1].id : null;
+
+    setLoading(true);
+    try {
+      await nodeService.createNode({
+        parent: activeParentId,
+        title: title.trim()
+      });
+      
+      await loadNodes(activeParentId);
+    } catch (err) {
+      console.error("Error al crear nodo:", err);
+      setError("No se pudo registrar el nuevo nodo.");
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Operación Segura de Eliminación de Nodos Vacíos
+   */
+  const handleDeleteNode = async () => {
+    if (history.length === 0) return;
+
+    const nodeToDelete = history[history.length - 1];
+
+    if (window.confirm(`¿Estás seguro de que deseas eliminar permanentemente "${nodeToDelete.title}"?`)) {
+      setLoading(true);
+      setError(null);
+      try {
+        await nodeService.deleteNode(nodeToDelete.id);
+        
+        const newHistory = [...history];
+        newHistory.pop(); 
+        setHistory(newHistory);
+
+        const nextParentId = newHistory.length > 0 ? newHistory[newHistory.length - 1].id : null;
+        await loadNodes(nextParentId);
+      } catch (err) {
+        console.error("Error al eliminar nodo:", err);
+        setError("No se pudo eliminar. El nodo podría contener dependencias.");
+        setLoading(false);
+      }
+    }
+  };
+
+  return (
+    <div style={{ padding: '20px', fontFamily: 'system-ui, sans-serif', maxWidth: '600px', margin: '0 auto', color: '#f5f5f5', backgroundColor: '#1a1a1a', minHeight: '100vh' }}>
+      
+      {/* Sección Superior */}
+      <div style={{ borderBottom: '1px solid #333', paddingBottom: '15px', marginBottom: '20px' }}>
+        <h1 style={{ margin: 0, fontSize: '22px', letterSpacing: '-0.5px' }}>📁 Explorador de Estructura Jerárquica</h1>
       </div>
 
-      {/* Panel de Operaciones CRUD */}
-      <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
-        <button 
-          onClick={handleCreateNode}
-          style={{ padding: '8px 12px', cursor: 'pointer', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px' }}
-        >
-          ➕ Crear Nodo Aquí
-        </button>
-        
-        {/* REQUISITO: El botón de eliminar solo se habilita si estamos dentro de un nodo y la lista de hijos actuales está vacía (nodes.length === 0) */}
-        {history.length > 0 && (
+      {/* Navegación Contextual (Breadcrumbs) y Controles CRUD */}
+      <div style={{ marginBottom: '25px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {history.length > 0 && (
+            <button 
+              onClick={handleBackClick}
+              style={{ padding: '6px 14px', cursor: 'pointer', backgroundColor: '#333', color: 'white', border: '1px solid #444', borderRadius: '6px', fontSize: '13px', fontWeight: '500' }}
+            >
+              ← Volver
+            </button>
+          )}
+          <span style={{ fontSize: '14px', color: '#aaa' }}>
+            Ubicación: <strong style={{ color: '#fff' }}>Raíz</strong>{history.map(n => ` › ${n.title}`)}
+          </span>
+        </div>
+
+        {/* Botones de Acción */}
+        <div style={{ display: 'flex', gap: '10px' }}>
           <button 
-            onClick={handleDeleteNode}
-            disabled={nodes.length > 0}
-            style={{ 
-              padding: '8px 12px', 
-              cursor: nodes.length > 0 ? 'not-allowed' : 'pointer', 
-              backgroundColor: nodes.length > 0 ? '#6c757d' : '#dc3545', 
-              color: 'white', 
-              border: 'none', 
-              borderRadius: '4px',
-              opacity: nodes.length > 0 ? 0.5 : 1
-            }}
-            title={nodes.length > 0 ? "No puedes eliminar un nodo que contiene hijos" : "Eliminar este nodo"}
+            onClick={handleCreateNode}
+            style={{ padding: '8px 16px', cursor: 'pointer', backgroundColor: '#15803d', color: 'white', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: '600' }}
           >
-            🗑️ Eliminar Nodo Actual
+            ➕ Crear Subnodo
           </button>
+          
+          {history.length > 0 && (
+            <button 
+              onClick={handleDeleteNode}
+              disabled={nodes.length > 0}
+              style={{ 
+                padding: '8px 16px', 
+                cursor: nodes.length > 0 ? 'not-allowed' : 'pointer', 
+                backgroundColor: nodes.length > 0 ? '#3b3b3b' : '#b91c1c', 
+                color: nodes.length > 0 ? '#777' : 'white', 
+                border: 'none', 
+                borderRadius: '6px',
+                fontSize: '13px',
+                fontWeight: '600',
+                transition: 'all 0.2s ease'
+              }}
+              title={nodes.length > 0 ? "No puedes eliminar un nodo que contiene hijos" : "Eliminar elemento actual"}
+            >
+              🗑️ Eliminar Nodo Actual
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Contenedor Principal de la Lista */}
+      <div style={{ minHeight: '150px', position: 'relative' }}>
+        {loading && <p style={{ color: '#aaa', fontStyle: 'italic' }}>Sincronizando con el servidor...</p>}
+        {error && <p style={{ color: '#ef4444', backgroundColor: '#451a1a', padding: '10px', borderRadius: '6px', fontSize: '14px', border: '1px solid #7f1d1d' }}>{error}</p>}
+
+        {!loading && !error && (
+          <div>
+            {nodes.length === 0 ? (
+              <div style={{ color: '#888', fontStyle: 'italic', padding: '30px 20px', textAlign: 'center', border: '1px dashed #333', borderRadius: '8px', backgroundColor: '#1e1e1e' }}>
+                Este nodo no contiene subnodos actualmente.
+              </div>
+            ) : (
+              <ul style={{ listStyleType: 'none', padding: 0, margin: 0 }}>
+                {nodes.map((node) => (
+                  <li key={node.id} style={{ margin: '8px 0' }}>
+                    <button 
+                      onClick={() => handleNodeClick(node)}
+                      style={{ 
+                        padding: '12px 16px', 
+                        cursor: 'pointer', 
+                        width: '100%', 
+                        textAlign: 'left',
+                        backgroundColor: '#222',
+                        color: '#f3f4f6',
+                        border: '1px solid #333',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        transition: 'background-color 0.15s'
+                      }}
+                      onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#2a2a2a'}
+                      onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#222'}
+                    >
+                      <span style={{ color: '#eab308' }}>📁</span> 
+                      <span style={{ flexGrow: 1 }}>{node.title}</span>
+                      <span style={{ color: '#555', fontSize: '12px' }}>ID: {node.id}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </div>
     </div>
-
-    {/* Gestión de Estados */}
-    {loading && <p>Cargando...</p>}
-    {error && <p style={{ color: 'red' }}>{error}</p>}
-
-    {/* Lista de Nodos */}
-    {!loading && !error && (
-      <div>
-        {nodes.length === 0 ? (
-          <p style={{ color: '#888', fontStyle: 'italic', padding: '20px', textAlign: 'center', border: '1px dashed #444', borderRadius: '6px' }}>
-            Este nodo no tiene hijos.
-          </p>
-        ) : (
-          <ul style={{ listStyleType: 'none', padding: 0 }}>
-            {nodes.map((node) => (
-              <li key={node.id} style={{ margin: '10px 0' }}>
-                <button 
-                  onClick={() => handleNodeClick(node)}
-                  style={{ 
-                    padding: '10px 15px', 
-                    cursor: 'pointer', 
-                    width: '100%', 
-                    textAlign: 'left',
-                    backgroundColor: '#242424',
-                    color: 'white',
-                    border: '1px solid #444',
-                    borderRadius: '6px'
-                  }}
-                >
-                  📁 {node.title} (ID: {node.id})
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    )}
-  </div>
-);
+  );
 }
 
 export default App;
